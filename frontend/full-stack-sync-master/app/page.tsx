@@ -3,7 +3,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Bot, RefreshCcw } from "lucide-react";
-import StatefulPart from "@/components/StatefulPart";
 
 export default function FullStackSyncMaster() {
   //const serverData = getServerData();
@@ -16,11 +15,13 @@ export default function FullStackSyncMaster() {
       </header>
 
       <Tabs defaultValue="sync" className="max-w-4xl mx-auto">
-        <TabsList className="grid grid-cols-3 bg-slate-800">
-          <TabsTrigger value="sync">Sync Environments</TabsTrigger>
-          <TabsTrigger value="ai">AI Suggestions</TabsTrigger>
-          <TabsTrigger value="testing">E2E Tests</TabsTrigger>
-        </TabsList>
+        <div className="flex justify-center mb-4">
+          <TabsList className="grid grid-cols-3 bg-slate-800">
+            <TabsTrigger value="sync">Sync Environments</TabsTrigger>
+            <TabsTrigger value="ai">AI Suggestions</TabsTrigger>
+            <TabsTrigger value="testing">E2E Tests</TabsTrigger>
+          </TabsList>
+        </div>
 
         <TabsContent value="sync">
           <Card className="bg-slate-900 border-slate-700">
