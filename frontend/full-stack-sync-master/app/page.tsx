@@ -5,8 +5,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Bot, RefreshCcw } from "lucide-react";
 
 export default function FullStackSyncMaster() {
-  //const serverData = getServerData();
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 to-slate-900 text-white p-6">
       <header className="text-center mb-10">
@@ -28,7 +26,7 @@ export default function FullStackSyncMaster() {
             <CardContent className="p-6">
               <h2 className="text-xl font-semibold mb-4">Environment Sync</h2>
               <p className="mb-4 text-slate-300">Connect your frontend and backend URLs:</p>
-              <div className="space-y-4">
+              <div className="space-yw4">
                 <Input placeholder="Frontend URL (e.g. http://localhost:3000)" className="bg-slate-800 border-slate-600" />
                 <Input placeholder="Backend URL (e.g. http://localhost:8080)" className="bg-slate-800 border-slate-600" />
                 <Button className="w-full bg-blue-600 hover:bg-blue-700">Sync Now</Button>
