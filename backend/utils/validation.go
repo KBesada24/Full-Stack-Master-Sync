@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 )
@@ -137,6 +138,8 @@ func (v *Validator) applyRule(fieldName string, value interface{}, ruleName, par
 		return v.validateAlphaNumeric(fieldName, value)
 	case "oneof":
 		return v.validateOneOf(fieldName, value, param)
+	case "dive":
+		return v.validateDive(fieldName, value, param)
 	default:
 		// Unknown rule, skip
 		return true
@@ -161,11 +164,28 @@ func (v *Validator) validateRequired(fieldName string, value interface{}) bool {
 			v.addError(fieldName, "Field is required", "")
 			return false
 		}
+	case []string:
+		if len(val) == 0 {
+			v.addError(fieldName, "Field is required", "")
+			return false
+		}
 	case map[string]interface{}:
 		if len(val) == 0 {
 			v.addError(fieldName, "Field is required", "")
 			return false
 		}
+	case time.Time:
+		if val.IsZero() {
+			v.addError(fieldName, "Field is required", "")
+			return false
+		}
+	}
+
+	// Use reflection to check for zero values of other types
+	rv := reflect.ValueOf(value)
+	if rv.Kind() == reflect.Slice && rv.Len() == 0 {
+		v.addError(fieldName, "Field is required", "")
+		return false
 	}
 
 	return true
@@ -354,6 +374,27 @@ func (v *Validator) validateOneOf(fieldName string, value interface{}, param str
 
 	v.addError(fieldName, fmt.Sprintf("Field must be one of: %s", strings.Join(options, ", ")), str)
 	return false
+}
+
+// validateDive validates each element in a slice
+func (v *Validator) validateDive(fieldName string, value interface{}, param string) bool {
+	rv := reflect.ValueOf(value)
+	if rv.Kind() != reflect.Slice {
+		v.addError(fieldName, "Field must be a slice for dive validation", fmt.Sprintf("%v", value))
+		return false
+	}
+
+	for i := 0; i < rv.Len(); i++ {
+		element := rv.Index(i).Interface()
+		elementFieldName := fmt.Sprintf("%s[%d]", fieldName, i)
+
+		// Apply the parameter validation rule to each element
+		if !v.applyRule(elementFieldName, element, param, "") {
+			return false
+		}
+	}
+
+	return true
 }
 
 // addError adds a validation error
