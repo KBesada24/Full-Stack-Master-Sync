@@ -10,7 +10,9 @@ import (
 	"time"
 
 	"github.com/KBesada24/Full-Stack-Master-Sync.git/config"
+	"github.com/KBesada24/Full-Stack-Master-Sync.git/handlers"
 	"github.com/KBesada24/Full-Stack-Master-Sync.git/middleware"
+	"github.com/KBesada24/Full-Stack-Master-Sync.git/services"
 	"github.com/KBesada24/Full-Stack-Master-Sync.git/utils"
 	"github.com/KBesada24/Full-Stack-Master-Sync.git/websocket"
 	"github.com/gofiber/fiber/v2"
@@ -123,6 +125,20 @@ func setupRoutes(app *fiber.App, cfg *config.Config, logger *utils.Logger) {
 	// API version group
 	api := app.Group("/api")
 
+	// Initialize services
+	aiService := services.NewAIService(cfg)
+	syncService := services.NewSyncService()
+
+	// Initialize handlers
+	aiHandler := handlers.NewAIHandler(aiService)
+	syncHandler := handlers.NewSyncHandler(syncService)
+
+	// Setup AI routes
+	setupAIRoutes(api, aiHandler)
+
+	// Setup Sync routes
+	setupSyncRoutes(api, syncHandler)
+
 	// Add API routes here (will be implemented in future tasks)
 	// For now, just add a basic API info endpoint
 	api.Get("/", func(c *fiber.Ctx) error {
@@ -134,6 +150,15 @@ func setupRoutes(app *fiber.App, cfg *config.Config, logger *utils.Logger) {
 				"GET /api - API information",
 				"GET /ws - WebSocket connection",
 				"GET /ws/stats - WebSocket statistics",
+				"POST /api/ai/suggestions - Get AI code suggestions",
+				"POST /api/ai/analyze-logs - Analyze logs with AI",
+				"GET /api/ai/status - Get AI service status",
+				"GET /api/ai/health - AI service health check",
+				"POST /api/sync/connect - Connect to sync environment",
+				"GET /api/sync/status - Get sync status",
+				"POST /api/sync/validate - Validate endpoint compatibility",
+				"GET /api/sync/environments - Get all environments",
+				"DELETE /api/sync/environments/:name - Remove environment",
 			},
 		})
 	})
@@ -143,6 +168,31 @@ func setupRoutes(app *fiber.App, cfg *config.Config, logger *utils.Logger) {
 		"api_base":           "/api",
 		"websocket_endpoint": "/ws",
 	})
+}
+
+// setupAIRoutes configures AI-related routes
+func setupAIRoutes(api fiber.Router, aiHandler *handlers.AIHandler) {
+	// AI routes group
+	ai := api.Group("/ai")
+
+	// AI assistance endpoints
+	ai.Post("/suggestions", aiHandler.GetCodeSuggestions)
+	ai.Post("/analyze-logs", aiHandler.AnalyzeLogs)
+	ai.Get("/status", aiHandler.GetAIStatus)
+	ai.Get("/health", aiHandler.HealthCheck)
+}
+
+// setupSyncRoutes configures sync-related routes
+func setupSyncRoutes(api fiber.Router, syncHandler *handlers.SyncHandler) {
+	// Sync routes group
+	sync := api.Group("/sync")
+
+	// Environment sync endpoints
+	sync.Post("/connect", syncHandler.ConnectEnvironment)
+	sync.Get("/status", syncHandler.GetSyncStatus)
+	sync.Post("/validate", syncHandler.ValidateEndpoint)
+	sync.Get("/environments", syncHandler.GetEnvironments)
+	sync.Delete("/environments/:name", syncHandler.RemoveEnvironment)
 }
 
 // healthCheckHandler creates the health check endpoint handler

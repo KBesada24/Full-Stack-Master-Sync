@@ -506,3 +506,18 @@ func JSONMarshal(v interface{}) ([]byte, error) {
 func JSONUnmarshal(data []byte, v interface{}) error {
 	return json.Unmarshal(data, v)
 }
+
+// ValidateStruct is a convenience function that validates a struct and returns an error
+func ValidateStruct(s interface{}) error {
+	validator := NewValidator()
+	result := validator.ValidateStruct(s)
+
+	if !result.IsValid {
+		// Return the first error found
+		for _, validationError := range result.Errors {
+			return fmt.Errorf("validation failed for field '%s': %s", validationError.Field, validationError.Message)
+		}
+	}
+
+	return nil
+}
