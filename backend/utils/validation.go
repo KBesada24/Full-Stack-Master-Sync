@@ -496,3 +496,13 @@ func ValidateAndSanitizeInput(input string, maxLength int) (string, error) {
 
 	return sanitized, nil
 }
+
+// JSONMarshal is a custom JSON marshal function for Fiber
+func JSONMarshal(v interface{}) ([]byte, error) {
+	return json.Marshal(v)
+}
+
+// JSONUnmarshal is a custom JSON unmarshal function for Fiber
+func JSONUnmarshal(data []byte, v interface{}) error {
+	return json.Unmarshal(data, v)
+}
