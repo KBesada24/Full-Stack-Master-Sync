@@ -521,3 +521,22 @@ func ValidateStruct(s interface{}) error {
 
 	return nil
 }
+
+// SplitAndTrim splits a string by delimiter and trims whitespace from each part
+func SplitAndTrim(s, delimiter string) []string {
+	if s == "" {
+		return []string{}
+	}
+
+	parts := strings.Split(s, delimiter)
+	result := make([]string, 0, len(parts))
+
+	for _, part := range parts {
+		trimmed := strings.TrimSpace(part)
+		if trimmed != "" {
+			result = append(result, trimmed)
+		}
+	}
+
+	return result
+}

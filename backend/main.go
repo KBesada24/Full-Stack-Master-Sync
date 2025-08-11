@@ -128,16 +128,26 @@ func setupRoutes(app *fiber.App, cfg *config.Config, logger *utils.Logger) {
 	// Initialize services
 	aiService := services.NewAIService(cfg)
 	syncService := services.NewSyncService()
+	testService := services.NewTestService(cfg, websocket.GetHub())
+	logService := services.NewLogService(aiService, websocket.GetHub())
 
 	// Initialize handlers
 	aiHandler := handlers.NewAIHandler(aiService)
 	syncHandler := handlers.NewSyncHandler(syncService)
+	testingHandler := handlers.NewTestingHandler(testService)
+	loggingHandler := handlers.NewLoggingHandler(logService)
 
 	// Setup AI routes
 	setupAIRoutes(api, aiHandler)
 
 	// Setup Sync routes
 	setupSyncRoutes(api, syncHandler)
+
+	// Setup Testing routes
+	setupTestingRoutes(api, testingHandler)
+
+	// Setup Logging routes
+	setupLoggingRoutes(api, loggingHandler)
 
 	// Add API routes here (will be implemented in future tasks)
 	// For now, just add a basic API info endpoint
@@ -159,6 +169,20 @@ func setupRoutes(app *fiber.App, cfg *config.Config, logger *utils.Logger) {
 				"POST /api/sync/validate - Validate endpoint compatibility",
 				"GET /api/sync/environments - Get all environments",
 				"DELETE /api/sync/environments/:name - Remove environment",
+				"POST /api/testing/run - Trigger test execution",
+				"GET /api/testing/results/:runId - Get test results",
+				"POST /api/testing/validate-sync - Validate API-UI synchronization",
+				"GET /api/testing/active - Get active test runs",
+				"GET /api/testing/history - Get test run history",
+				"DELETE /api/testing/runs/:runId - Cancel test run",
+				"GET /api/testing/status - Get testing service status",
+				"GET /api/testing/health - Testing service health check",
+				"POST /api/logs/submit - Submit log entries",
+				"GET /api/logs/analyze - Analyze logs and detect patterns",
+				"GET /api/logs/stats - Get log statistics",
+				"DELETE /api/logs/clear - Clear all logs",
+				"GET /api/logs/status - Get logging service status",
+				"GET /api/logs/health - Logging service health check",
 			},
 		})
 	})
@@ -193,6 +217,38 @@ func setupSyncRoutes(api fiber.Router, syncHandler *handlers.SyncHandler) {
 	sync.Post("/validate", syncHandler.ValidateEndpoint)
 	sync.Get("/environments", syncHandler.GetEnvironments)
 	sync.Delete("/environments/:name", syncHandler.RemoveEnvironment)
+}
+
+// setupTestingRoutes configures testing-related routes
+func setupTestingRoutes(api fiber.Router, testingHandler *handlers.TestingHandler) {
+	// Testing routes group
+	testing := api.Group("/testing")
+
+	// Core testing endpoints
+	testing.Post("/run", testingHandler.RunTests)
+	testing.Get("/results/:runId", testingHandler.GetTestResults)
+	testing.Post("/validate-sync", testingHandler.ValidateSync)
+
+	// Additional testing endpoints
+	testing.Get("/active", testingHandler.GetActiveRuns)
+	testing.Get("/history", testingHandler.GetRunHistory)
+	testing.Delete("/runs/:runId", testingHandler.CancelTestRun)
+	testing.Get("/status", testingHandler.GetTestingStatus)
+	testing.Get("/health", testingHandler.HealthCheck)
+}
+
+// setupLoggingRoutes configures logging-related routes
+func setupLoggingRoutes(api fiber.Router, loggingHandler *handlers.LoggingHandler) {
+	// Logging routes group
+	logs := api.Group("/logs")
+
+	// Core logging endpoints
+	logs.Post("/submit", loggingHandler.SubmitLogs)
+	logs.Get("/analyze", loggingHandler.AnalyzeLogs)
+	logs.Get("/stats", loggingHandler.GetLogStats)
+	logs.Delete("/clear", loggingHandler.ClearLogs)
+	logs.Get("/status", loggingHandler.GetLoggingStatus)
+	logs.Get("/health", loggingHandler.HealthCheck)
 }
 
 // healthCheckHandler creates the health check endpoint handler

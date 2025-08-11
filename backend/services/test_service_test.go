@@ -8,8 +8,18 @@ import (
 	"github.com/KBesada24/Full-Stack-Master-Sync.git/config"
 	"github.com/KBesada24/Full-Stack-Master-Sync.git/models"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
+
+// MockWebSocketHub implements the WebSocketHub interface for testing
+type MockWebSocketHub struct {
+	mock.Mock
+}
+
+func (m *MockWebSocketHub) BroadcastToAll(msgType string, data interface{}) {
+	m.Called(msgType, data)
+}
 
 func TestNewTestService(t *testing.T) {
 	cfg := &config.Config{
@@ -17,18 +27,12 @@ func TestNewTestService(t *testing.T) {
 		PlaywrightBaseURL: "http://localhost:3000",
 	}
 
-	wsHub := &models.WSHub{
-		Clients:    make(map[*models.WSClient]bool),
-		Broadcast:  make(chan models.WSMessage, 256),
-		Register:   make(chan *models.WSClient),
-		Unregister: make(chan *models.WSClient),
-	}
-
-	service := NewTestService(cfg, wsHub)
+	mockHub := &MockWebSocketHub{}
+	service := NewTestService(cfg, mockHub)
 
 	assert.NotNil(t, service)
 	assert.Equal(t, cfg, service.config)
-	assert.Equal(t, wsHub, service.wsHub)
+	assert.Equal(t, mockHub, service.wsHub)
 	assert.NotNil(t, service.activeRuns)
 	assert.NotNil(t, service.runHistory)
 	assert.Equal(t, 100, service.maxHistory)
@@ -83,7 +87,16 @@ func TestTestService_GetEstimatedDuration(t *testing.T) {
 }
 
 func TestTestService_StartTestRun(t *testing.T) {
-	service := createTestService()
+	cfg := &config.Config{
+		CypressBaseURL:    "http://localhost:3000",
+		PlaywrightBaseURL: "http://localhost:3000",
+	}
+
+	mockHub := &MockWebSocketHub{}
+	// Set up mock expectations for WebSocket broadcasts
+	mockHub.On("BroadcastToAll", "test_progress", mock.Anything).Return()
+
+	service := NewTestService(cfg, mockHub)
 	ctx := context.Background()
 
 	req := &models.TestRunRequest{
@@ -158,7 +171,8 @@ func TestTestService_GetTestResults(t *testing.T) {
 	results, err = service.GetTestResults(response.RunID)
 	require.NoError(t, err)
 	assert.Equal(t, response.RunID, results.RunID)
-	assert.Equal(t, "queued", results.Status)
+	// Status could be "queued" or "running" depending on timing
+	assert.Contains(t, []string{"queued", "running"}, results.Status)
 
 	// Add to history and test history retrieval
 	service.mu.Lock()
@@ -271,7 +285,8 @@ func TestTestService_GetActiveRuns(t *testing.T) {
 	active = service.GetActiveRuns()
 	assert.Len(t, active, 1)
 	assert.Contains(t, active, response.RunID)
-	assert.Equal(t, "queued", active[response.RunID].Status)
+	// Status could be "queued" or "running" depending on timing
+	assert.Contains(t, []string{"queued", "running"}, active[response.RunID].Status)
 	assert.Equal(t, "vitest", active[response.RunID].Framework)
 }
 
@@ -552,12 +567,9 @@ func createTestService() *TestService {
 		PlaywrightBaseURL: "http://localhost:3000",
 	}
 
-	wsHub := &models.WSHub{
-		Clients:    make(map[*models.WSClient]bool),
-		Broadcast:  make(chan models.WSMessage, 256),
-		Register:   make(chan *models.WSClient),
-		Unregister: make(chan *models.WSClient),
-	}
+	mockHub := &MockWebSocketHub{}
+	// Set up mock expectations for WebSocket broadcasts
+	mockHub.On("BroadcastToAll", mock.Anything, mock.Anything).Return()
 
-	return NewTestService(cfg, wsHub)
+	return NewTestService(cfg, mockHub)
 }

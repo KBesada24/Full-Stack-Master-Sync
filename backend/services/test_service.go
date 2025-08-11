@@ -23,7 +23,12 @@ type TestService struct {
 	activeRuns map[string]*TestRun
 	runHistory []models.TestResults
 	maxHistory int
-	wsHub      *models.WSHub // For real-time updates
+	wsHub      WebSocketHub // For real-time updates
+}
+
+// WebSocketHub interface for WebSocket broadcasting
+type WebSocketHub interface {
+	BroadcastToAll(msgType string, data interface{})
 }
 
 // TestRun represents an active test run
@@ -41,7 +46,7 @@ type TestRun struct {
 }
 
 // NewTestService creates a new test service instance
-func NewTestService(cfg *config.Config, wsHub *models.WSHub) *TestService {
+func NewTestService(cfg *config.Config, wsHub WebSocketHub) *TestService {
 	return &TestService{
 		config:     cfg,
 		activeRuns: make(map[string]*TestRun),
@@ -715,24 +720,13 @@ func (s *TestService) broadcastTestUpdate(runID, status, message string) {
 		return
 	}
 
-	wsMessage := models.WSMessage{
-		Type: "test_progress",
-		Data: map[string]interface{}{
-			"run_id":  runID,
-			"status":  status,
-			"message": message,
-		},
-		Timestamp: time.Now(),
-		ClientID:  "test-service",
+	data := map[string]interface{}{
+		"run_id":  runID,
+		"status":  status,
+		"message": message,
 	}
 
-	select {
-	case s.wsHub.Broadcast <- wsMessage:
-		// Message sent successfully
-	default:
-		// Channel is full, skip this update
-		log.Printf("WebSocket broadcast channel full, skipping test update for run %s", runID)
-	}
+	s.wsHub.BroadcastToAll("test_progress", data)
 }
 
 func (s *TestService) moveToHistory(run *TestRun) {

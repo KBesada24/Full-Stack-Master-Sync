@@ -105,3 +105,8 @@ func BroadcastToClient(clientID, msgType string, data interface{}) {
 		GlobalHub.BroadcastToClient(clientID, msgType, data)
 	}
 }
+
+// GetHub returns the global WebSocket hub instance
+func GetHub() *Hub {
+	return GlobalHub
+}
