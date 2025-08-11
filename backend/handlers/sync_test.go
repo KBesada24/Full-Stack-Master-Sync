@@ -513,7 +513,7 @@ func TestSyncHandler_RemoveEnvironment(t *testing.T) {
 func TestSyncHandler_Integration(t *testing.T) {
 	// This test uses the real sync service to test the full integration
 	app := setupTestApp()
-	syncService := services.NewSyncService()
+	syncService := services.NewSyncService(nil)
 	handler := NewSyncHandler(syncService)
 
 	// Setup routes

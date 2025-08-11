@@ -17,16 +17,18 @@ type SyncService struct {
 	mutex        sync.RWMutex
 	logger       *utils.Logger
 	httpClient   *http.Client
+	wsHub        WebSocketBroadcaster
 }
 
 // NewSyncService creates a new sync service instance
-func NewSyncService() *SyncService {
+func NewSyncService(wsHub WebSocketBroadcaster) *SyncService {
 	return &SyncService{
 		environments: make(map[string]*models.SyncEnvironment),
 		logger:       utils.GetLogger(),
 		httpClient: &http.Client{
 			Timeout: 10 * time.Second,
 		},
+		wsHub: wsHub,
 	}
 }
 
@@ -92,6 +94,9 @@ func (s *SyncService) ConnectEnvironment(req *models.SyncConnectionRequest) (*mo
 		"status":      env.Status,
 		"connected":   response.Connected,
 	})
+
+	// Broadcast sync status update via WebSocket
+	s.broadcastSyncUpdate(response)
 
 	return response, nil
 }
@@ -353,5 +358,34 @@ func (s *SyncService) RemoveEnvironment(environmentName string) error {
 		"environment": environmentName,
 	})
 
+	// Broadcast sync status update after environment removal
+	if status, err := s.GetSyncStatus(); err == nil {
+		s.broadcastSyncUpdate(status)
+	}
+
 	return nil
+}
+
+// broadcastSyncUpdate broadcasts sync status updates via WebSocket
+func (s *SyncService) broadcastSyncUpdate(status *models.SyncStatusResponse) {
+	if s.wsHub == nil {
+		return
+	}
+
+	updateData := map[string]interface{}{
+		"type":         "sync_status_change",
+		"status":       status.Status,
+		"connected":    status.Connected,
+		"last_sync":    status.LastSync,
+		"environments": status.Environments,
+		"health":       status.Health,
+		"timestamp":    time.Now(),
+	}
+
+	s.wsHub.BroadcastToAll("sync_status_update", updateData)
+
+	s.logger.Debug("Broadcasted sync status update", map[string]interface{}{
+		"status":    status.Status,
+		"connected": status.Connected,
+	})
 }

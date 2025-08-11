@@ -23,12 +23,7 @@ type TestService struct {
 	activeRuns map[string]*TestRun
 	runHistory []models.TestResults
 	maxHistory int
-	wsHub      WebSocketHub // For real-time updates
-}
-
-// WebSocketHub interface for WebSocket broadcasting
-type WebSocketHub interface {
-	BroadcastToAll(msgType string, data interface{})
+	wsHub      WebSocketBroadcaster // For real-time updates
 }
 
 // TestRun represents an active test run
@@ -46,7 +41,7 @@ type TestRun struct {
 }
 
 // NewTestService creates a new test service instance
-func NewTestService(cfg *config.Config, wsHub WebSocketHub) *TestService {
+func NewTestService(cfg *config.Config, wsHub WebSocketBroadcaster) *TestService {
 	return &TestService{
 		config:     cfg,
 		activeRuns: make(map[string]*TestRun),
@@ -720,10 +715,35 @@ func (s *TestService) broadcastTestUpdate(runID, status, message string) {
 		return
 	}
 
+	// Get the test run for additional details
+	s.mu.RLock()
+	run, exists := s.activeRuns[runID]
+	s.mu.RUnlock()
+
 	data := map[string]interface{}{
-		"run_id":  runID,
-		"status":  status,
-		"message": message,
+		"run_id":    runID,
+		"status":    status,
+		"message":   message,
+		"timestamp": time.Now(),
+	}
+
+	if exists && run != nil {
+		data["framework"] = run.Request.Framework
+		data["environment"] = run.Request.Environment
+		data["start_time"] = run.StartTime
+
+		if run.Results != nil {
+			data["total_tests"] = run.Results.TotalTests
+			data["passed_tests"] = run.Results.PassedTests
+			data["failed_tests"] = run.Results.FailedTests
+			data["skipped_tests"] = run.Results.SkippedTests
+
+			if !run.EndTime.IsZero() {
+				data["duration"] = run.EndTime.Sub(run.StartTime).String()
+			} else {
+				data["duration"] = time.Since(run.StartTime).String()
+			}
+		}
 	}
 
 	s.wsHub.BroadcastToAll("test_progress", data)

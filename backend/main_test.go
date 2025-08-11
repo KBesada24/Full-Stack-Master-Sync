@@ -19,8 +19,9 @@ func TestCreateFiberApp(t *testing.T) {
 		Port:        "8080",
 	}
 	logger := utils.GetLogger()
+	recoveryService := utils.NewErrorRecoveryService(logger)
 
-	app := createFiberApp(cfg, logger)
+	app := createFiberApp(cfg, logger, recoveryService)
 
 	assert.NotNil(t, app)
 	assert.Equal(t, "Full Stack Master Sync Backend v1.0.0", app.Config().AppName)
@@ -63,9 +64,10 @@ func TestSetupMiddleware(t *testing.T) {
 		FrontendURL: "http://localhost:3000",
 	}
 	logger := utils.GetLogger()
+	recoveryService := utils.NewErrorRecoveryService(logger)
 
 	app := fiber.New()
-	setupMiddleware(app, cfg, logger)
+	setupMiddleware(app, cfg, logger, recoveryService)
 
 	// Test that middleware is properly configured by making a request
 	app.Get("/test", func(c *fiber.Ctx) error {
@@ -94,9 +96,10 @@ func TestSetupRoutes(t *testing.T) {
 		Port:        "8080",
 	}
 	logger := utils.GetLogger()
+	recoveryService := utils.NewErrorRecoveryService(logger)
 
 	app := fiber.New()
-	setupRoutes(app, cfg, logger)
+	setupRoutes(app, cfg, logger, recoveryService)
 
 	// Test health endpoint
 	req, err := http.NewRequest("GET", "/health", nil)
@@ -129,7 +132,8 @@ func TestSetupRoutes(t *testing.T) {
 // TestErrorHandler tests the custom error handler
 func TestErrorHandler(t *testing.T) {
 	logger := utils.GetLogger()
-	errorHandler := createErrorHandler(logger)
+	recoveryService := utils.NewErrorRecoveryService(logger)
+	errorHandler := createErrorHandler(logger, recoveryService)
 
 	app := fiber.New(fiber.Config{
 		ErrorHandler: errorHandler,
@@ -165,10 +169,11 @@ func TestServerConfiguration(t *testing.T) {
 		FrontendURL: "http://localhost:3000",
 	}
 	logger := utils.GetLogger()
+	recoveryService := utils.NewErrorRecoveryService(logger)
 
-	app := createFiberApp(cfg, logger)
-	setupMiddleware(app, cfg, logger)
-	setupRoutes(app, cfg, logger)
+	app := createFiberApp(cfg, logger, recoveryService)
+	setupMiddleware(app, cfg, logger, recoveryService)
+	setupRoutes(app, cfg, logger, recoveryService)
 
 	// Test that the app is properly configured
 	assert.NotNil(t, app)

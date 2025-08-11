@@ -160,3 +160,37 @@ func (h *Hub) RegisterClient(client *Client) {
 func (h *Hub) UnregisterClient(client *Client) {
 	h.unregister <- client
 }
+
+// Shutdown gracefully shuts down the WebSocket hub
+func (h *Hub) Shutdown() {
+	logger := utils.GetLogger()
+	logger.Info("Shutting down WebSocket hub", map[string]interface{}{
+		"connected_clients": len(h.clients),
+	})
+
+	// Close all client connections
+	for client := range h.clients {
+		// Send disconnect message to client
+		disconnectMsg := models.WSMessage{
+			Type:      "disconnect",
+			Data:      map[string]interface{}{"reason": "server_shutdown"},
+			Timestamp: time.Now(),
+			ClientID:  "server",
+		}
+
+		select {
+		case client.send <- disconnectMsg:
+		default:
+			// Channel is blocked, skip
+		}
+
+		// Close the client connection
+		if client.conn != nil {
+			client.conn.Close()
+		}
+		close(client.send)
+		delete(h.clients, client)
+	}
+
+	logger.Info("WebSocket hub shutdown completed")
+}

@@ -13,7 +13,7 @@ import (
 )
 
 func TestNewSyncService(t *testing.T) {
-	service := NewSyncService()
+	service := NewSyncService(nil)
 
 	assert.NotNil(t, service)
 	assert.NotNil(t, service.environments)
@@ -99,7 +99,7 @@ func TestSyncService_ConnectEnvironment(t *testing.T) {
 			tt.request.BackendURL = backendServer.URL
 
 			// Create service and test
-			service := NewSyncService()
+			service := NewSyncService(nil)
 			response, err := service.ConnectEnvironment(tt.request)
 
 			if tt.expectedError {
@@ -123,7 +123,7 @@ func TestSyncService_ConnectEnvironment(t *testing.T) {
 }
 
 func TestSyncService_GetSyncStatus(t *testing.T) {
-	service := NewSyncService()
+	service := NewSyncService(nil)
 
 	t.Run("no environments", func(t *testing.T) {
 		response, err := service.GetSyncStatus()
@@ -258,7 +258,7 @@ func TestSyncService_ValidateEndpoint(t *testing.T) {
 			tt.request.BackendEndpoint = backendServer.URL + "/api/test"
 
 			// Create service and test
-			service := NewSyncService()
+			service := NewSyncService(nil)
 			response, err := service.ValidateEndpoint(tt.request)
 
 			require.NoError(t, err)
@@ -305,7 +305,7 @@ func TestSyncService_ValidateEndpoint_Methods(t *testing.T) {
 				Payload:          map[string]interface{}{"test": "data"},
 			}
 
-			service := NewSyncService()
+			service := NewSyncService(nil)
 			response, err := service.ValidateEndpoint(request)
 
 			require.NoError(t, err)
@@ -315,7 +315,7 @@ func TestSyncService_ValidateEndpoint_Methods(t *testing.T) {
 }
 
 func TestSyncService_ValidateEndpoint_UnsupportedMethod(t *testing.T) {
-	service := NewSyncService()
+	service := NewSyncService(nil)
 
 	request := &models.SyncValidationRequest{
 		FrontendEndpoint: "http://frontend.test",
@@ -332,7 +332,7 @@ func TestSyncService_ValidateEndpoint_UnsupportedMethod(t *testing.T) {
 }
 
 func TestSyncService_GetEnvironments(t *testing.T) {
-	service := NewSyncService()
+	service := NewSyncService(nil)
 
 	t.Run("empty environments", func(t *testing.T) {
 		environments := service.GetEnvironments()
@@ -370,7 +370,7 @@ func TestSyncService_GetEnvironments(t *testing.T) {
 }
 
 func TestSyncService_RemoveEnvironment(t *testing.T) {
-	service := NewSyncService()
+	service := NewSyncService(nil)
 
 	t.Run("remove existing environment", func(t *testing.T) {
 		// Add test environment
@@ -394,7 +394,7 @@ func TestSyncService_RemoveEnvironment(t *testing.T) {
 }
 
 func TestSyncService_checkURLHealth(t *testing.T) {
-	service := NewSyncService()
+	service := NewSyncService(nil)
 
 	t.Run("healthy URL", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -443,7 +443,7 @@ func TestSyncService_checkURLHealth(t *testing.T) {
 }
 
 func TestSyncService_getHealthMessage(t *testing.T) {
-	service := NewSyncService()
+	service := NewSyncService(nil)
 
 	tests := []struct {
 		name            string

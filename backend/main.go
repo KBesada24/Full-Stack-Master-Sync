@@ -16,7 +16,6 @@ import (
 	"github.com/KBesada24/Full-Stack-Master-Sync.git/utils"
 	"github.com/KBesada24/Full-Stack-Master-Sync.git/websocket"
 	"github.com/gofiber/fiber/v2"
-	"github.com/gofiber/fiber/v2/middleware/recover"
 	websocket2 "github.com/gofiber/websocket/v2"
 	"github.com/joho/godotenv"
 )
@@ -36,6 +35,7 @@ func main() {
 	}
 
 	// Initialize logger
+	utils.InitLogger(cfg.LogLevel, cfg.LogFormat)
 	logger := utils.GetLogger()
 	logger.Info("Starting Full Stack Master Sync Backend", map[string]interface{}{
 		"version":     "1.0.0",
@@ -43,28 +43,31 @@ func main() {
 		"port":        cfg.Port,
 	})
 
+	// Initialize error recovery service
+	recoveryService := utils.NewErrorRecoveryService(logger)
+
 	// Initialize WebSocket hub
 	websocket.InitializeHub()
 
 	// Create Fiber app with configuration
-	app := createFiberApp(cfg, logger)
+	app := createFiberApp(cfg, logger, recoveryService)
 
 	// Setup middleware
-	setupMiddleware(app, cfg, logger)
+	setupMiddleware(app, cfg, logger, recoveryService)
 
 	// Setup routes
-	setupRoutes(app, cfg, logger)
+	setupRoutes(app, cfg, logger, recoveryService)
 
 	// Start server with graceful shutdown
-	startServerWithGracefulShutdown(app, cfg, logger)
+	startServerWithGracefulShutdown(app, cfg, logger, recoveryService)
 }
 
 // createFiberApp creates and configures the Fiber application
-func createFiberApp(cfg *config.Config, logger *utils.Logger) *fiber.App {
+func createFiberApp(cfg *config.Config, logger *utils.Logger, recoveryService *utils.ErrorRecoveryService) *fiber.App {
 	return fiber.New(fiber.Config{
 		AppName:      "Full Stack Master Sync Backend v1.0.0",
 		ServerHeader: "Full-Stack-Master-Sync",
-		ErrorHandler: createErrorHandler(logger),
+		ErrorHandler: createErrorHandler(logger, recoveryService),
 		ReadTimeout:  30 * time.Second,
 		WriteTimeout: 30 * time.Second,
 		IdleTimeout:  120 * time.Second,
@@ -75,11 +78,15 @@ func createFiberApp(cfg *config.Config, logger *utils.Logger) *fiber.App {
 }
 
 // setupMiddleware configures all middleware for the application
-func setupMiddleware(app *fiber.App, cfg *config.Config, logger *utils.Logger) {
-	// Recovery middleware (should be first)
-	app.Use(recover.New(recover.Config{
-		EnableStackTrace: cfg.IsDevelopment(),
-	}))
+func setupMiddleware(app *fiber.App, cfg *config.Config, logger *utils.Logger, recoveryService *utils.ErrorRecoveryService) {
+	// Enhanced error handling middleware (should be first)
+	errorConfig := &middleware.EnhancedErrorHandlingConfig{
+		EnableStackTrace:     cfg.IsDevelopment(),
+		EnableDetailedErrors: cfg.IsDevelopment(),
+		Logger:               logger,
+		RecoveryService:      recoveryService,
+	}
+	app.Use(middleware.EnhancedErrorHandlingMiddleware(errorConfig))
 
 	// Correlation ID middleware
 	app.Use(middleware.CorrelationID())
@@ -108,9 +115,15 @@ func setupMiddleware(app *fiber.App, cfg *config.Config, logger *utils.Logger) {
 }
 
 // setupRoutes configures all routes for the application
-func setupRoutes(app *fiber.App, cfg *config.Config, logger *utils.Logger) {
-	// Health check endpoint
-	app.Get("/health", healthCheckHandler(cfg))
+func setupRoutes(app *fiber.App, cfg *config.Config, logger *utils.Logger, recoveryService *utils.ErrorRecoveryService) {
+	// Enhanced health check endpoint with error recovery
+	app.Get("/health", middleware.HealthCheckErrorHandler(recoveryService))
+
+	// Error recovery stats endpoint
+	app.Get("/error-recovery/stats", func(c *fiber.Ctx) error {
+		stats := recoveryService.GetStats()
+		return utils.SuccessResponse(c, "Error recovery statistics", stats)
+	})
 
 	// WebSocket endpoint
 	app.Use("/ws", websocket.WebSocketUpgrade)
@@ -125,11 +138,12 @@ func setupRoutes(app *fiber.App, cfg *config.Config, logger *utils.Logger) {
 	// API version group
 	api := app.Group("/api")
 
-	// Initialize services
-	aiService := services.NewAIService(cfg)
-	syncService := services.NewSyncService()
-	testService := services.NewTestService(cfg, websocket.GetHub())
-	logService := services.NewLogService(aiService, websocket.GetHub())
+	// Initialize services with WebSocket hub integration and enhanced error handling
+	wsHub := websocket.GetHub()
+	aiService := services.NewAIService(cfg, wsHub, logger)
+	syncService := services.NewSyncService(wsHub)
+	testService := services.NewTestService(cfg, wsHub)
+	logService := services.NewLogService(aiService, wsHub)
 
 	// Initialize handlers
 	aiHandler := handlers.NewAIHandler(aiService)
@@ -275,12 +289,16 @@ func healthCheckHandler(cfg *config.Config) fiber.Handler {
 	}
 }
 
-// createErrorHandler creates a custom error handler for Fiber
-func createErrorHandler(logger *utils.Logger) fiber.ErrorHandler {
+// createErrorHandler creates a custom error handler for Fiber with enhanced error recovery
+func createErrorHandler(logger *utils.Logger, recoveryService *utils.ErrorRecoveryService) fiber.ErrorHandler {
 	return func(c *fiber.Ctx, err error) error {
+		// Use recovery service for panic handling
+		defer recoveryService.Recover()
+
 		// Default to 500 server error
 		code := fiber.StatusInternalServerError
 		message := "Internal Server Error"
+		errorCode := "INTERNAL_SERVER_ERROR"
 
 		// Check if it's a Fiber error
 		if e, ok := err.(*fiber.Error); ok {
@@ -288,30 +306,86 @@ func createErrorHandler(logger *utils.Logger) fiber.ErrorHandler {
 			message = e.Message
 		}
 
-		// Log the error
+		// Check for circuit breaker errors
+		if utils.IsCircuitBreakerError(err) {
+			code = fiber.StatusServiceUnavailable
+			message = "Service temporarily unavailable"
+			errorCode = "CIRCUIT_BREAKER_OPEN"
+		}
+
+		// Check for retry errors
+		if utils.IsRetryableError(err) {
+			code = fiber.StatusServiceUnavailable
+			message = "Service temporarily unavailable after retry attempts"
+			errorCode = "RETRY_EXHAUSTED"
+		}
+
+		// Log the error with enhanced context
 		traceID := utils.GetTraceID(c)
 		logger.WithTraceID(traceID).WithSource("error_handler").Error(
 			"Request error", err, map[string]interface{}{
 				"method":     c.Method(),
 				"path":       c.Path(),
 				"status":     code,
+				"error_code": errorCode,
 				"ip":         c.IP(),
 				"user_agent": c.Get("User-Agent"),
+				"error_type": fmt.Sprintf("%T", err),
 			})
 
-		// Return error response
-		return utils.ErrorResponse(c, code, "REQUEST_ERROR", message, nil)
+		// Create detailed error response
+		details := map[string]string{
+			"correlation_id": traceID,
+			"timestamp":      time.Now().Format(time.RFC3339),
+		}
+
+		// Add circuit breaker information if applicable
+		if utils.IsCircuitBreakerError(err) {
+			details["circuit_breaker"] = "open"
+			details["retry_after"] = "60s"
+		}
+
+		// Return enhanced error response
+		return utils.ErrorResponse(c, code, errorCode, message, details)
 	}
 }
 
 // startServerWithGracefulShutdown starts the server with graceful shutdown handling
-func startServerWithGracefulShutdown(app *fiber.App, cfg *config.Config, logger *utils.Logger) {
+func startServerWithGracefulShutdown(app *fiber.App, cfg *config.Config, logger *utils.Logger, recoveryService *utils.ErrorRecoveryService) {
+	// Register cleanup functions for graceful shutdown
+	recoveryService.RegisterShutdown(func(ctx context.Context) error {
+		logger.Info("Shutting down Fiber server...")
+		return app.ShutdownWithContext(ctx)
+	})
+
+	recoveryService.RegisterShutdown(func(ctx context.Context) error {
+		logger.Info("Closing WebSocket connections...")
+		websocket.GetHub().Shutdown()
+		return nil
+	})
+
+	// Register health checks
+	recoveryService.RegisterHealthCheck("server", func(ctx context.Context) error {
+		// Basic server health check
+		return nil
+	})
+
+	recoveryService.RegisterHealthCheck("config", func(ctx context.Context) error {
+		// Configuration validation
+		if errors := cfg.Validate(); len(errors) > 0 {
+			return fmt.Errorf("configuration validation failed: %v", errors)
+		}
+		return nil
+	})
+
 	// Channel to listen for interrupt signal
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
 
-	// Start server in a goroutine
+	// Start server in a goroutine with panic recovery
 	go func() {
+		defer recoveryService.Recover()
+
 		address := ":" + cfg.Port
 		logger.Info("Server starting", map[string]interface{}{
 			"address":     address,
@@ -321,6 +395,7 @@ func startServerWithGracefulShutdown(app *fiber.App, cfg *config.Config, logger 
 		fmt.Printf("🚀 Server starting on port %s\n", cfg.Port)
 		fmt.Printf("📊 Health check available at: http://localhost:%s/health\n", cfg.Port)
 		fmt.Printf("🔗 API base URL: http://localhost:%s/api\n", cfg.Port)
+		fmt.Printf("📈 Error recovery stats: http://localhost:%s/error-recovery/stats\n", cfg.Port)
 
 		if err := app.Listen(address); err != nil {
 			logger.Error("Server failed to start", err, map[string]interface{}{
@@ -338,14 +413,14 @@ func startServerWithGracefulShutdown(app *fiber.App, cfg *config.Config, logger 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// Shutdown server
-	if err := app.ShutdownWithContext(ctx); err != nil {
-		logger.Error("Server forced to shutdown", err, nil)
-		log.Fatal("Server forced to shutdown:", err)
+	// Use recovery service for graceful shutdown
+	if err := recoveryService.Shutdown(ctx); err != nil {
+		logger.Error("Graceful shutdown completed with errors", err, nil)
+		log.Printf("⚠️  Graceful shutdown completed with errors: %v", err)
+	} else {
+		logger.Info("Graceful shutdown completed successfully")
+		fmt.Println("✅ Graceful shutdown completed successfully")
 	}
-
-	logger.Info("Server shutdown completed successfully")
-	fmt.Println("✅ Server shutdown completed")
 }
 
 // Global variable to track server start time for uptime calculation

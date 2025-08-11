@@ -10,6 +10,7 @@ import (
 
 	"github.com/KBesada24/Full-Stack-Master-Sync.git/config"
 	"github.com/KBesada24/Full-Stack-Master-Sync.git/models"
+	"github.com/KBesada24/Full-Stack-Master-Sync.git/utils"
 	"github.com/google/uuid"
 	"github.com/sashabaranov/go-openai"
 	"golang.org/x/time/rate"
@@ -17,17 +18,21 @@ import (
 
 // AIService handles OpenAI integration with rate limiting and error handling
 type AIService struct {
-	client      *openai.Client
-	config      *config.Config
-	rateLimiter *rate.Limiter
-	mu          sync.RWMutex
-	isAvailable bool
-	lastError   error
-	lastCheck   time.Time
+	client         *openai.Client
+	config         *config.Config
+	rateLimiter    *rate.Limiter
+	mu             sync.RWMutex
+	isAvailable    bool
+	lastError      error
+	lastCheck      time.Time
+	wsHub          WebSocketBroadcaster
+	circuitBreaker *utils.CircuitBreaker
+	retryExecutor  *utils.RetryExecutor
+	logger         *utils.Logger
 }
 
 // NewAIService creates a new AI service instance
-func NewAIService(cfg *config.Config) *AIService {
+func NewAIService(cfg *config.Config, wsHub WebSocketBroadcaster, logger *utils.Logger) *AIService {
 	var client *openai.Client
 	isAvailable := false
 
@@ -39,12 +44,46 @@ func NewAIService(cfg *config.Config) *AIService {
 	// Rate limiter: 60 requests per minute (1 per second with burst of 10)
 	limiter := rate.NewLimiter(rate.Every(time.Second), 10)
 
+	// Circuit breaker configuration for OpenAI API
+	cbConfig := &utils.CircuitBreakerConfig{
+		MaxFailures:      3,
+		Timeout:          60 * time.Second,
+		MaxRequests:      2,
+		SuccessThreshold: 2,
+		Name:             "openai_api",
+	}
+
+	// Retry configuration for OpenAI API
+	retryConfig := &utils.RetryConfig{
+		MaxAttempts:       3,
+		InitialDelay:      500 * time.Millisecond,
+		MaxDelay:          10 * time.Second,
+		BackoffMultiplier: 2.0,
+		Jitter:            true,
+		RetryCondition: func(err error) bool {
+			// Retry on rate limit and temporary errors
+			errStr := strings.ToLower(err.Error())
+			return strings.Contains(errStr, "rate limit") ||
+				strings.Contains(errStr, "timeout") ||
+				strings.Contains(errStr, "temporary") ||
+				strings.Contains(errStr, "service unavailable")
+		},
+	}
+
+	if logger == nil {
+		logger = utils.GetLogger()
+	}
+
 	return &AIService{
-		client:      client,
-		config:      cfg,
-		rateLimiter: limiter,
-		isAvailable: isAvailable,
-		lastCheck:   time.Now(),
+		client:         client,
+		config:         cfg,
+		rateLimiter:    limiter,
+		isAvailable:    isAvailable,
+		lastCheck:      time.Now(),
+		wsHub:          wsHub,
+		circuitBreaker: utils.NewCircuitBreaker(cbConfig, logger),
+		retryExecutor:  utils.NewRetryExecutor(retryConfig, logger),
+		logger:         logger,
 	}
 }
 
@@ -61,55 +100,76 @@ func (s *AIService) GetCodeSuggestions(ctx context.Context, req *models.AIReques
 		return s.getFallbackResponse(req, "AI service is currently unavailable")
 	}
 
-	// Apply rate limiting
-	if err := s.rateLimiter.Wait(ctx); err != nil {
-		return nil, fmt.Errorf("rate limit exceeded: %w", err)
-	}
-
 	requestID := uuid.New().String()
 
-	// Build the prompt based on request type
-	prompt := s.buildCodePrompt(req)
+	// Execute with circuit breaker and retry logic
+	var response *models.AIResponse
+	err := s.retryExecutor.Execute(ctx, func(ctx context.Context) error {
+		return s.circuitBreaker.Execute(ctx, func(ctx context.Context) error {
+			// Apply rate limiting
+			if err := s.rateLimiter.Wait(ctx); err != nil {
+				return fmt.Errorf("rate limit exceeded: %w", err)
+			}
 
-	// Make OpenAI API call
-	resp, err := s.client.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
-		Model: openai.GPT3Dot5Turbo,
-		Messages: []openai.ChatCompletionMessage{
-			{
-				Role:    openai.ChatMessageRoleSystem,
-				Content: "You are an expert code assistant. Provide helpful, accurate code suggestions and improvements.",
-			},
-			{
-				Role:    openai.ChatMessageRoleUser,
-				Content: prompt,
-			},
-		},
-		MaxTokens:   1000,
-		Temperature: 0.3,
-		TopP:        1.0,
+			// Build the prompt based on request type
+			prompt := s.buildCodePrompt(req)
+
+			// Make OpenAI API call
+			resp, err := s.client.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
+				Model: openai.GPT3Dot5Turbo,
+				Messages: []openai.ChatCompletionMessage{
+					{
+						Role:    openai.ChatMessageRoleSystem,
+						Content: "You are an expert code assistant. Provide helpful, accurate code suggestions and improvements.",
+					},
+					{
+						Role:    openai.ChatMessageRoleUser,
+						Content: prompt,
+					},
+				},
+				MaxTokens:   1000,
+				Temperature: 0.3,
+				TopP:        1.0,
+			})
+
+			if err != nil {
+				s.updateAvailability(false, err)
+				return fmt.Errorf("OpenAI API error: %w", err)
+			}
+
+			s.updateAvailability(true, nil)
+
+			// Parse the response
+			if len(resp.Choices) == 0 {
+				return fmt.Errorf("no suggestions generated")
+			}
+
+			suggestions := s.parseCodeSuggestions(resp.Choices[0].Message.Content, req)
+
+			response = &models.AIResponse{
+				Suggestions: suggestions,
+				Analysis:    resp.Choices[0].Message.Content,
+				Confidence:  0.8, // Default confidence for OpenAI responses
+				RequestID:   requestID,
+				ProcessedAt: time.Now(),
+			}
+
+			return nil
+		})
 	})
 
 	if err != nil {
-		s.updateAvailability(false, err)
-		return s.getFallbackResponse(req, fmt.Sprintf("OpenAI API error: %v", err))
+		s.logger.WithSource("ai_service").Error("Failed to get code suggestions", err, map[string]interface{}{
+			"request_id":   requestID,
+			"request_type": req.RequestType,
+		})
+		return s.getFallbackResponse(req, fmt.Sprintf("Failed to get suggestions: %v", err))
 	}
 
-	s.updateAvailability(true, nil)
+	// Broadcast AI suggestion ready notification
+	s.broadcastAISuggestionReady(requestID, req.RequestType, len(response.Suggestions))
 
-	// Parse the response
-	if len(resp.Choices) == 0 {
-		return s.getFallbackResponse(req, "No suggestions generated")
-	}
-
-	suggestions := s.parseCodeSuggestions(resp.Choices[0].Message.Content, req)
-
-	return &models.AIResponse{
-		Suggestions: suggestions,
-		Analysis:    resp.Choices[0].Message.Content,
-		Confidence:  0.8, // Default confidence for OpenAI responses
-		RequestID:   requestID,
-		ProcessedAt: time.Now(),
-	}, nil
+	return response, nil
 }
 
 // AnalyzeLogs analyzes logs using OpenAI
@@ -118,54 +178,75 @@ func (s *AIService) AnalyzeLogs(ctx context.Context, req *models.AILogAnalysisRe
 		return s.getFallbackLogAnalysis(req, "AI service is currently unavailable")
 	}
 
-	// Apply rate limiting
-	if err := s.rateLimiter.Wait(ctx); err != nil {
-		return nil, fmt.Errorf("rate limit exceeded: %w", err)
-	}
+	// Execute with circuit breaker and retry logic
+	var response *models.AILogAnalysisResponse
+	err := s.retryExecutor.Execute(ctx, func(ctx context.Context) error {
+		return s.circuitBreaker.Execute(ctx, func(ctx context.Context) error {
+			// Apply rate limiting
+			if err := s.rateLimiter.Wait(ctx); err != nil {
+				return fmt.Errorf("rate limit exceeded: %w", err)
+			}
 
-	// Build the log analysis prompt
-	prompt := s.buildLogAnalysisPrompt(req)
+			// Build the log analysis prompt
+			prompt := s.buildLogAnalysisPrompt(req)
 
-	// Make OpenAI API call
-	resp, err := s.client.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
-		Model: openai.GPT3Dot5Turbo,
-		Messages: []openai.ChatCompletionMessage{
-			{
-				Role:    openai.ChatMessageRoleSystem,
-				Content: "You are an expert log analyst. Analyze logs to identify issues, patterns, and provide actionable suggestions.",
-			},
-			{
-				Role:    openai.ChatMessageRoleUser,
-				Content: prompt,
-			},
-		},
-		MaxTokens:   1500,
-		Temperature: 0.2,
-		TopP:        1.0,
+			// Make OpenAI API call
+			resp, err := s.client.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
+				Model: openai.GPT3Dot5Turbo,
+				Messages: []openai.ChatCompletionMessage{
+					{
+						Role:    openai.ChatMessageRoleSystem,
+						Content: "You are an expert log analyst. Analyze logs to identify issues, patterns, and provide actionable suggestions.",
+					},
+					{
+						Role:    openai.ChatMessageRoleUser,
+						Content: prompt,
+					},
+				},
+				MaxTokens:   1500,
+				Temperature: 0.2,
+				TopP:        1.0,
+			})
+
+			if err != nil {
+				s.updateAvailability(false, err)
+				return fmt.Errorf("OpenAI API error: %w", err)
+			}
+
+			s.updateAvailability(true, nil)
+
+			// Parse the response
+			if len(resp.Choices) == 0 {
+				return fmt.Errorf("no analysis generated")
+			}
+
+			analysis := s.parseLogAnalysis(resp.Choices[0].Message.Content, req)
+
+			response = &models.AILogAnalysisResponse{
+				Summary:     analysis.Summary,
+				Issues:      analysis.Issues,
+				Patterns:    analysis.Patterns,
+				Suggestions: analysis.Suggestions,
+				AnalyzedAt:  time.Now(),
+				Confidence:  0.8,
+			}
+
+			return nil
+		})
 	})
 
 	if err != nil {
-		s.updateAvailability(false, err)
-		return s.getFallbackLogAnalysis(req, fmt.Sprintf("OpenAI API error: %v", err))
+		s.logger.WithSource("ai_service").Error("Failed to analyze logs", err, map[string]interface{}{
+			"log_count":     len(req.Logs),
+			"analysis_type": req.AnalysisType,
+		})
+		return s.getFallbackLogAnalysis(req, fmt.Sprintf("Failed to analyze logs: %v", err))
 	}
 
-	s.updateAvailability(true, nil)
+	// Broadcast AI log analysis ready notification
+	s.broadcastAILogAnalysisReady(len(req.Logs), len(response.Issues), len(response.Patterns))
 
-	// Parse the response
-	if len(resp.Choices) == 0 {
-		return s.getFallbackLogAnalysis(req, "No analysis generated")
-	}
-
-	analysis := s.parseLogAnalysis(resp.Choices[0].Message.Content, req)
-
-	return &models.AILogAnalysisResponse{
-		Summary:     analysis.Summary,
-		Issues:      analysis.Issues,
-		Patterns:    analysis.Patterns,
-		Suggestions: analysis.Suggestions,
-		AnalyzedAt:  time.Now(),
-		Confidence:  0.8,
-	}, nil
+	return response, nil
 }
 
 // buildCodePrompt creates a prompt for code suggestions
@@ -312,13 +393,18 @@ func (s *AIService) getFallbackResponse(req *models.AIRequest, reason string) (*
 		}
 	}
 
-	return &models.AIResponse{
+	response := &models.AIResponse{
 		Suggestions: []models.Suggestion{fallbackSuggestion},
 		Analysis:    fmt.Sprintf("AI service is currently unavailable: %s", reason),
 		Confidence:  0.1, // Low confidence for fallback responses
 		RequestID:   requestID,
 		ProcessedAt: time.Now(),
-	}, nil
+	}
+
+	// Broadcast AI suggestion ready notification even for fallback responses
+	s.broadcastAISuggestionReady(requestID, req.RequestType, len(response.Suggestions))
+
+	return response, nil
 }
 
 // getFallbackLogAnalysis returns a fallback log analysis when AI service is unavailable
@@ -380,28 +466,67 @@ func (s *AIService) HealthCheck(ctx context.Context) error {
 		return fmt.Errorf("AI service is not available: API key not configured")
 	}
 
-	// Apply rate limiting for health check
-	if err := s.rateLimiter.Wait(ctx); err != nil {
-		return fmt.Errorf("rate limit exceeded during health check: %w", err)
-	}
+	// Execute health check with circuit breaker
+	return s.circuitBreaker.Execute(ctx, func(ctx context.Context) error {
+		// Apply rate limiting for health check
+		if err := s.rateLimiter.Wait(ctx); err != nil {
+			return fmt.Errorf("rate limit exceeded during health check: %w", err)
+		}
 
-	// Simple test request to verify API connectivity
-	_, err := s.client.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
-		Model: openai.GPT3Dot5Turbo,
-		Messages: []openai.ChatCompletionMessage{
-			{
-				Role:    openai.ChatMessageRoleUser,
-				Content: "Hello",
+		// Simple test request to verify API connectivity
+		_, err := s.client.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
+			Model: openai.GPT3Dot5Turbo,
+			Messages: []openai.ChatCompletionMessage{
+				{
+					Role:    openai.ChatMessageRoleUser,
+					Content: "Hello",
+				},
 			},
-		},
-		MaxTokens: 5,
-	})
+			MaxTokens: 5,
+		})
 
-	if err != nil {
-		s.updateAvailability(false, err)
-		return fmt.Errorf("AI service health check failed: %w", err)
+		if err != nil {
+			s.updateAvailability(false, err)
+			return fmt.Errorf("AI service health check failed: %w", err)
+		}
+
+		s.updateAvailability(true, nil)
+		return nil
+	})
+}
+
+// broadcastAISuggestionReady broadcasts AI suggestion ready notification
+func (s *AIService) broadcastAISuggestionReady(requestID, requestType string, suggestionCount int) {
+	if s.wsHub == nil {
+		return
 	}
 
-	s.updateAvailability(true, nil)
-	return nil
+	notificationData := map[string]interface{}{
+		"type":             "code_suggestions",
+		"request_id":       requestID,
+		"request_type":     requestType,
+		"suggestion_count": suggestionCount,
+		"timestamp":        time.Now(),
+		"status":           "ready",
+	}
+
+	s.wsHub.BroadcastToAll("ai_suggestion_ready", notificationData)
+}
+
+// broadcastAILogAnalysisReady broadcasts AI log analysis ready notification
+func (s *AIService) broadcastAILogAnalysisReady(logCount, issueCount, patternCount int) {
+	if s.wsHub == nil {
+		return
+	}
+
+	notificationData := map[string]interface{}{
+		"type":           "log_analysis",
+		"logs_analyzed":  logCount,
+		"issues_found":   issueCount,
+		"patterns_found": patternCount,
+		"timestamp":      time.Now(),
+		"status":         "ready",
+	}
+
+	s.wsHub.BroadcastToAll("ai_suggestion_ready", notificationData)
 }

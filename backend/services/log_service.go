@@ -10,7 +10,6 @@ import (
 
 	"github.com/KBesada24/Full-Stack-Master-Sync.git/models"
 	"github.com/KBesada24/Full-Stack-Master-Sync.git/utils"
-	"github.com/KBesada24/Full-Stack-Master-Sync.git/websocket"
 	"github.com/google/uuid"
 )
 
@@ -25,13 +24,13 @@ type LogService struct {
 	logs      []models.LogEntry
 	alerts    []models.LogAlert
 	aiService AIServiceInterface
-	wsHub     *websocket.Hub
+	wsHub     WebSocketBroadcaster
 	mu        sync.RWMutex
 	logger    *utils.Logger
 }
 
 // NewLogService creates a new log service instance
-func NewLogService(aiService AIServiceInterface, wsHub *websocket.Hub) *LogService {
+func NewLogService(aiService AIServiceInterface, wsHub WebSocketBroadcaster) *LogService {
 	return &LogService{
 		logs:      make([]models.LogEntry, 0),
 		alerts:    make([]models.LogAlert, 0),

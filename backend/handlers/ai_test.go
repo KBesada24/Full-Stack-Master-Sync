@@ -22,7 +22,8 @@ func TestAIHandler_GetCodeSuggestions(t *testing.T) {
 	cfg := &config.Config{
 		OpenAIAPIKey: "", // Empty key for testing fallback behavior
 	}
-	aiService := services.NewAIService(cfg)
+	logger := utils.NewLogger("debug", "json")
+	aiService := services.NewAIService(cfg, nil, logger)
 	handler := NewAIHandler(aiService)
 
 	app := fiber.New()
@@ -151,7 +152,8 @@ func TestAIHandler_AnalyzeLogs(t *testing.T) {
 	cfg := &config.Config{
 		OpenAIAPIKey: "", // Empty key for testing fallback behavior
 	}
-	aiService := services.NewAIService(cfg)
+	logger := utils.NewLogger("debug", "json")
+	aiService := services.NewAIService(cfg, nil, logger)
 	handler := NewAIHandler(aiService)
 
 	app := fiber.New()
@@ -309,7 +311,8 @@ func TestAIHandler_GetAIStatus(t *testing.T) {
 	cfg := &config.Config{
 		OpenAIAPIKey: "", // Empty key for testing
 	}
-	aiService := services.NewAIService(cfg)
+	logger := utils.NewLogger("debug", "json")
+	aiService := services.NewAIService(cfg, nil, logger)
 	handler := NewAIHandler(aiService)
 
 	app := fiber.New()
@@ -355,7 +358,8 @@ func TestAIHandler_HealthCheck(t *testing.T) {
 	cfg := &config.Config{
 		OpenAIAPIKey: "", // Empty key for testing
 	}
-	aiService := services.NewAIService(cfg)
+	logger := utils.NewLogger("debug", "json")
+	aiService := services.NewAIService(cfg, nil, logger)
 	handler := NewAIHandler(aiService)
 
 	app := fiber.New()
@@ -387,7 +391,8 @@ func TestAIHandler_Integration(t *testing.T) {
 	cfg := &config.Config{
 		OpenAIAPIKey: "", // Empty key for testing fallback behavior
 	}
-	aiService := services.NewAIService(cfg)
+	logger := utils.NewLogger("debug", "json")
+	aiService := services.NewAIService(cfg, nil, logger)
 	handler := NewAIHandler(aiService)
 
 	app := fiber.New()
@@ -447,7 +452,8 @@ func TestAIHandler_Integration(t *testing.T) {
 // Benchmark tests for performance validation
 func BenchmarkAIHandler_GetCodeSuggestions(b *testing.B) {
 	cfg := &config.Config{OpenAIAPIKey: ""}
-	aiService := services.NewAIService(cfg)
+	logger := utils.NewLogger("debug", "json")
+	aiService := services.NewAIService(cfg, nil, logger)
 	handler := NewAIHandler(aiService)
 
 	app := fiber.New()
@@ -475,7 +481,8 @@ func BenchmarkAIHandler_GetCodeSuggestions(b *testing.B) {
 
 func BenchmarkAIHandler_AnalyzeLogs(b *testing.B) {
 	cfg := &config.Config{OpenAIAPIKey: ""}
-	aiService := services.NewAIService(cfg)
+	logger := utils.NewLogger("debug", "json")
+	aiService := services.NewAIService(cfg, nil, logger)
 	handler := NewAIHandler(aiService)
 
 	app := fiber.New()

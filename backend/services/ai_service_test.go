@@ -7,6 +7,7 @@ import (
 
 	"github.com/KBesada24/Full-Stack-Master-Sync.git/config"
 	"github.com/KBesada24/Full-Stack-Master-Sync.git/models"
+	"github.com/KBesada24/Full-Stack-Master-Sync.git/utils"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -34,8 +35,9 @@ func TestNewAIService(t *testing.T) {
 			cfg := &config.Config{
 				OpenAIAPIKey: tt.apiKey,
 			}
+			logger := utils.NewLogger("debug", "json")
 
-			service := NewAIService(cfg)
+			service := NewAIService(cfg, nil, logger)
 
 			assert.NotNil(t, service)
 			assert.Equal(t, tt.expectedAvail, service.IsAvailable())
@@ -49,8 +51,9 @@ func TestAIService_IsAvailable(t *testing.T) {
 	cfg := &config.Config{
 		OpenAIAPIKey: "test-api-key",
 	}
+	logger := utils.NewLogger("debug", "json")
 
-	service := NewAIService(cfg)
+	service := NewAIService(cfg, nil, logger)
 	assert.True(t, service.IsAvailable())
 
 	// Test with no API key
@@ -58,7 +61,7 @@ func TestAIService_IsAvailable(t *testing.T) {
 		OpenAIAPIKey: "",
 	}
 
-	serviceNoKey := NewAIService(cfgNoKey)
+	serviceNoKey := NewAIService(cfgNoKey, nil, logger)
 	assert.False(t, serviceNoKey.IsAvailable())
 }
 
@@ -66,8 +69,9 @@ func TestAIService_GetCodeSuggestions_ServiceUnavailable(t *testing.T) {
 	cfg := &config.Config{
 		OpenAIAPIKey: "", // No API key to simulate unavailable service
 	}
+	logger := utils.NewLogger("debug", "json")
 
-	service := NewAIService(cfg)
+	service := NewAIService(cfg, nil, logger)
 	ctx := context.Background()
 
 	req := &models.AIRequest{
@@ -93,8 +97,9 @@ func TestAIService_GetCodeSuggestions_DifferentRequestTypes(t *testing.T) {
 	cfg := &config.Config{
 		OpenAIAPIKey: "", // No API key to test fallback responses
 	}
+	logger := utils.NewLogger("debug", "json")
 
-	service := NewAIService(cfg)
+	service := NewAIService(cfg, nil, logger)
 	ctx := context.Background()
 
 	testCases := []struct {
@@ -132,8 +137,9 @@ func TestAIService_AnalyzeLogs_ServiceUnavailable(t *testing.T) {
 	cfg := &config.Config{
 		OpenAIAPIKey: "", // No API key to simulate unavailable service
 	}
+	logger := utils.NewLogger("debug", "json")
 
-	service := NewAIService(cfg)
+	service := NewAIService(cfg, nil, logger)
 	ctx := context.Background()
 
 	req := &models.AILogAnalysisRequest{
@@ -165,8 +171,9 @@ func TestAIService_buildCodePrompt(t *testing.T) {
 	cfg := &config.Config{
 		OpenAIAPIKey: "test-key",
 	}
+	logger := utils.NewLogger("debug", "json")
 
-	service := NewAIService(cfg)
+	service := NewAIService(cfg, nil, logger)
 
 	tests := []struct {
 		name        string
@@ -228,8 +235,9 @@ func TestAIService_buildLogAnalysisPrompt(t *testing.T) {
 	cfg := &config.Config{
 		OpenAIAPIKey: "test-key",
 	}
+	logger := utils.NewLogger("debug", "json")
 
-	service := NewAIService(cfg)
+	service := NewAIService(cfg, nil, logger)
 
 	req := &models.AILogAnalysisRequest{
 		Logs: []models.LogEntry{
@@ -267,8 +275,9 @@ func TestAIService_parseCodeSuggestions(t *testing.T) {
 	cfg := &config.Config{
 		OpenAIAPIKey: "test-key",
 	}
+	logger := utils.NewLogger("debug", "json")
 
-	service := NewAIService(cfg)
+	service := NewAIService(cfg, nil, logger)
 
 	req := &models.AIRequest{
 		Code:        "console.log('test');",
@@ -292,8 +301,9 @@ func TestAIService_parseLogAnalysis(t *testing.T) {
 	cfg := &config.Config{
 		OpenAIAPIKey: "test-key",
 	}
+	logger := utils.NewLogger("debug", "json")
 
-	service := NewAIService(cfg)
+	service := NewAIService(cfg, nil, logger)
 
 	req := &models.AILogAnalysisRequest{
 		AnalysisType: "error_detection",
@@ -314,8 +324,9 @@ func TestAIService_updateAvailability(t *testing.T) {
 	cfg := &config.Config{
 		OpenAIAPIKey: "test-key",
 	}
+	logger := utils.NewLogger("debug", "json")
 
-	service := NewAIService(cfg)
+	service := NewAIService(cfg, nil, logger)
 
 	// Initially available
 	assert.True(t, service.IsAvailable())
@@ -343,8 +354,9 @@ func TestAIService_GetStatus(t *testing.T) {
 	cfg := &config.Config{
 		OpenAIAPIKey: "test-key",
 	}
+	logger := utils.NewLogger("debug", "json")
 
-	service := NewAIService(cfg)
+	service := NewAIService(cfg, nil, logger)
 
 	status := service.GetStatus()
 
@@ -366,8 +378,9 @@ func TestAIService_RateLimiting(t *testing.T) {
 	cfg := &config.Config{
 		OpenAIAPIKey: "", // No API key to avoid actual API calls
 	}
+	logger := utils.NewLogger("debug", "json")
 
-	service := NewAIService(cfg)
+	service := NewAIService(cfg, nil, logger)
 	ctx := context.Background()
 
 	req := &models.AIRequest{
@@ -392,8 +405,9 @@ func BenchmarkAIService_GetCodeSuggestions_Fallback(b *testing.B) {
 	cfg := &config.Config{
 		OpenAIAPIKey: "", // No API key to test fallback performance
 	}
+	logger := utils.NewLogger("debug", "json")
 
-	service := NewAIService(cfg)
+	service := NewAIService(cfg, nil, logger)
 	ctx := context.Background()
 
 	req := &models.AIRequest{
@@ -416,8 +430,9 @@ func BenchmarkAIService_AnalyzeLogs_Fallback(b *testing.B) {
 	cfg := &config.Config{
 		OpenAIAPIKey: "", // No API key to test fallback performance
 	}
+	logger := utils.NewLogger("debug", "json")
 
-	service := NewAIService(cfg)
+	service := NewAIService(cfg, nil, logger)
 	ctx := context.Background()
 
 	req := &models.AILogAnalysisRequest{
