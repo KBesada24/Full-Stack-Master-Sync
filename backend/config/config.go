@@ -29,6 +29,15 @@ type Config struct {
 	// Testing Configuration
 	CypressBaseURL    string
 	PlaywrightBaseURL string
+
+	// Feature Toggles
+	EnableAIFeatures            bool
+	EnableWebSocket             bool
+	EnablePerformanceMonitoring bool
+	EnableRateLimiting          bool
+	EnableCircuitBreaker        bool
+	EnableDetailedErrors        bool
+	EnableDebugEndpoints        bool
 }
 
 // Load loads configuration from environment variables with defaults
@@ -55,6 +64,15 @@ func Load() *Config {
 		// Testing Configuration
 		CypressBaseURL:    getEnv("CYPRESS_BASE_URL", "http://localhost:3000"),
 		PlaywrightBaseURL: getEnv("PLAYWRIGHT_BASE_URL", "http://localhost:3000"),
+
+		// Feature Toggles (default to enabled)
+		EnableAIFeatures:            getEnvAsBool("ENABLE_AI_FEATURES", true),
+		EnableWebSocket:             getEnvAsBool("ENABLE_WEBSOCKET", true),
+		EnablePerformanceMonitoring: getEnvAsBool("ENABLE_PERFORMANCE_MONITORING", true),
+		EnableRateLimiting:          getEnvAsBool("ENABLE_RATE_LIMITING", true),
+		EnableCircuitBreaker:        getEnvAsBool("ENABLE_CIRCUIT_BREAKER", true),
+		EnableDetailedErrors:        getEnvAsBool("ENABLE_DETAILED_ERRORS", false),
+		EnableDebugEndpoints:        getEnvAsBool("ENABLE_DEBUG_ENDPOINTS", false),
 	}
 }
 

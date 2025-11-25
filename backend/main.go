@@ -81,8 +81,8 @@ func createFiberApp(cfg *config.Config, logger *utils.Logger, recoveryService *u
 func setupMiddleware(app *fiber.App, cfg *config.Config, logger *utils.Logger, recoveryService *utils.ErrorRecoveryService) {
 	// Enhanced error handling middleware (should be first)
 	errorConfig := &middleware.EnhancedErrorHandlingConfig{
-		EnableStackTrace:     cfg.IsDevelopment(),
-		EnableDetailedErrors: cfg.IsDevelopment(),
+		EnableStackTrace:     cfg.IsDevelopment() || cfg.EnableDetailedErrors,
+		EnableDetailedErrors: cfg.IsDevelopment() || cfg.EnableDetailedErrors,
 		Logger:               logger,
 		RecoveryService:      recoveryService,
 	}
@@ -112,6 +112,25 @@ func setupMiddleware(app *fiber.App, cfg *config.Config, logger *utils.Logger, r
 
 	// Error logging middleware
 	app.Use(middleware.ErrorLogging(logger))
+
+	// Performance monitoring middleware (if enabled)
+	if cfg.EnablePerformanceMonitoring {
+		app.Use(middleware.PerformanceMonitoring())
+		app.Use(middleware.MemoryMonitoring())
+	}
+
+	// Connection pooling middleware
+	app.Use(middleware.ConnectionPooling())
+
+	// Rate limiting middleware (if enabled)
+	if cfg.EnableRateLimiting {
+		rateLimitConfig := middleware.RateLimitConfig{
+			RequestsPerSecond: 100, // 100 requests per second
+			BurstSize:         20,  // Allow bursts of up to 20 requests
+			SkipPaths:         []string{"/health", "/metrics", "/ws", "/debug"},
+		}
+		app.Use(middleware.RateLimiting(rateLimitConfig))
+	}
 }
 
 // setupRoutes configures all routes for the application
@@ -163,6 +182,14 @@ func setupRoutes(app *fiber.App, cfg *config.Config, logger *utils.Logger, recov
 	// Setup Logging routes
 	setupLoggingRoutes(api, loggingHandler)
 
+	// Setup Performance routes
+	setupPerformanceRoutes(api, logger)
+
+	// Setup Debug routes (if enabled)
+	if cfg.EnableDebugEndpoints || cfg.IsDevelopment() {
+		setupDebugRoutes(app, cfg, logger)
+	}
+
 	// Add API routes here (will be implemented in future tasks)
 	// For now, just add a basic API info endpoint
 	api.Get("/", func(c *fiber.Ctx) error {
@@ -197,6 +224,15 @@ func setupRoutes(app *fiber.App, cfg *config.Config, logger *utils.Logger, recov
 				"DELETE /api/logs/clear - Clear all logs",
 				"GET /api/logs/status - Get logging service status",
 				"GET /api/logs/health - Logging service health check",
+				"GET /api/performance/metrics - Get performance metrics",
+				"GET /api/performance/memory - Get memory statistics",
+				"GET /api/performance/pools - Get connection pool statistics",
+				"POST /api/performance/reset - Reset performance metrics",
+				"POST /api/performance/gc - Trigger garbage collection",
+				"GET /api/performance/system - Get system information",
+				"GET /api/performance/endpoint - Get endpoint-specific metrics",
+				"GET /api/performance/top - Get top endpoints by metrics",
+				"GET /api/performance/health - Performance monitoring health check",
 			},
 		})
 	})
@@ -263,6 +299,55 @@ func setupLoggingRoutes(api fiber.Router, loggingHandler *handlers.LoggingHandle
 	logs.Delete("/clear", loggingHandler.ClearLogs)
 	logs.Get("/status", loggingHandler.GetLoggingStatus)
 	logs.Get("/health", loggingHandler.HealthCheck)
+}
+
+// setupPerformanceRoutes configures performance monitoring routes
+func setupPerformanceRoutes(api fiber.Router, logger *utils.Logger) {
+	// Performance routes group
+	performance := api.Group("/performance")
+
+	// Initialize performance handler
+	performanceHandler := handlers.NewPerformanceHandler(logger)
+
+	// Performance monitoring endpoints
+	performance.Get("/metrics", performanceHandler.GetPerformanceMetrics)
+	performance.Get("/memory", performanceHandler.GetMemoryStats)
+	performance.Get("/pools", performanceHandler.GetConnectionPoolStats)
+	performance.Post("/reset", performanceHandler.ResetPerformanceMetrics)
+	performance.Post("/gc", performanceHandler.TriggerGC)
+	performance.Get("/system", performanceHandler.GetSystemInfo)
+	performance.Get("/endpoint", performanceHandler.GetEndpointMetrics)
+	performance.Get("/top", performanceHandler.GetTopEndpoints)
+	performance.Get("/health", performanceHandler.HealthCheck)
+}
+
+// setupDebugRoutes configures debug endpoints for development
+func setupDebugRoutes(app *fiber.App, cfg *config.Config, logger *utils.Logger) {
+	// Debug routes group
+	debug := app.Group("/debug")
+
+	// Initialize debug handler
+	debugHandler := handlers.NewDebugHandler(cfg)
+
+	// Debug endpoints
+	debug.Get("/config", debugHandler.GetConfig)
+	debug.Get("/routes", debugHandler.GetRoutes)
+	debug.Get("/env", debugHandler.GetEnvironment)
+	debug.Get("/system", debugHandler.GetSystemInfo)
+	debug.Get("/features", debugHandler.GetFeatureToggles)
+	debug.Get("/health", debugHandler.GetHealthChecks)
+
+	logger.Info("Debug endpoints enabled", map[string]interface{}{
+		"base_path": "/debug",
+		"endpoints": []string{
+			"/debug/config",
+			"/debug/routes",
+			"/debug/env",
+			"/debug/system",
+			"/debug/features",
+			"/debug/health",
+		},
+	})
 }
 
 // healthCheckHandler creates the health check endpoint handler

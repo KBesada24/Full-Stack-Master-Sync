@@ -358,12 +358,57 @@ func (s *SyncService) RemoveEnvironment(environmentName string) error {
 		"environment": environmentName,
 	})
 
-	// Broadcast sync status update after environment removal
-	if status, err := s.GetSyncStatus(); err == nil {
-		s.broadcastSyncUpdate(status)
-	}
+	// Create status without acquiring locks to avoid deadlock
+	status := s.createSyncStatusLocked()
+	s.broadcastSyncUpdate(status)
 
 	return nil
+}
+
+// createSyncStatusLocked creates sync status without acquiring locks (assumes lock is already held)
+func (s *SyncService) createSyncStatusLocked() *models.SyncStatusResponse {
+	connected := len(s.environments) > 0
+	status := "disconnected"
+	if connected {
+		status = "connected"
+	}
+
+	// Create environments map
+	environments := make(map[string]string)
+	for name, env := range s.environments {
+		environments[name] = env.FrontendURL
+	}
+
+	// Check health of all environments
+	health := models.HealthStatus{
+		Frontend: true,
+		Backend:  true,
+		Database: true,
+		Message:  "All systems operational",
+	}
+
+	// If we have environments, check their health
+	if len(s.environments) > 0 {
+		allHealthy := true
+		for _, env := range s.environments {
+			if env.Status != "active" {
+				allHealthy = false
+				break
+			}
+		}
+		if !allHealthy {
+			health.Frontend = false
+			health.Message = "Some environments are not healthy"
+		}
+	}
+
+	return &models.SyncStatusResponse{
+		Status:       status,
+		Connected:    connected,
+		LastSync:     time.Now(),
+		Environments: environments,
+		Health:       health,
+	}
 }
 
 // broadcastSyncUpdate broadcasts sync status updates via WebSocket

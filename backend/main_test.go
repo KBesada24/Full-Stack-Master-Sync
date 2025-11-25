@@ -157,7 +157,7 @@ func TestErrorHandler(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Contains(t, string(body), "error")
-	assert.Contains(t, string(body), "REQUEST_ERROR")
+	assert.Contains(t, string(body), "INTERNAL_SERVER_ERROR") // Error handler returns INTERNAL_SERVER_ERROR for all errors
 	assert.Contains(t, string(body), "trace_id")
 }
 

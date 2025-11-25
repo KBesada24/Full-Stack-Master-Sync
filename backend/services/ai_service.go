@@ -37,7 +37,14 @@ func NewAIService(cfg *config.Config, wsHub WebSocketBroadcaster, logger *utils.
 	isAvailable := false
 
 	if cfg.OpenAIAPIKey != "" {
-		client = openai.NewClient(cfg.OpenAIAPIKey)
+		// Use connection pooling for OpenAI API calls
+		connectionPool := utils.OpenAIConnectionPool()
+		httpClient := connectionPool.GetClient()
+
+		clientConfig := openai.DefaultConfig(cfg.OpenAIAPIKey)
+		clientConfig.HTTPClient = httpClient
+
+		client = openai.NewClientWithConfig(clientConfig)
 		isAvailable = true
 	}
 

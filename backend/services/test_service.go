@@ -124,10 +124,9 @@ func (s *TestService) GetTestResults(runID string) (*models.TestResults, error) 
 // CancelTestRun cancels an active test run
 func (s *TestService) CancelTestRun(runID string) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	run, exists := s.activeRuns[runID]
 	if !exists {
+		s.mu.Unlock()
 		return fmt.Errorf("test run not found or already completed: %s", runID)
 	}
 
@@ -145,8 +144,9 @@ func (s *TestService) CancelTestRun(runID string) error {
 	run.Status = "cancelled"
 	run.Results.Status = "cancelled"
 	run.EndTime = time.Now()
+	s.mu.Unlock()
 
-	// Broadcast update
+	// Broadcast update (outside of lock to avoid deadlock)
 	s.broadcastTestUpdate(runID, "cancelled", "Test run cancelled by user")
 
 	return nil
